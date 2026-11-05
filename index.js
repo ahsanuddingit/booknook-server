@@ -53,6 +53,45 @@ const verifyToken = async (req, res, next) => {
   }
 };
 
+/* ==========================
+   BOOK ROUTES (CRUD)
+   ========================== */
+
+// 1. GET /books — Get all books (Public)
+app.get("/books", async (req, res) => {
+  try {
+    const { category, search } = req.query;
+    let query = {};
+    if (category && category !== "All") {
+      query.category = category;
+    }
+    if (search) {
+      query.title = { $regex: search, $options: "i" };
+    }
+    const result = await booksCollection.find(query).toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch books", error: error.message });
+  }
+});
+
+
+
+/* ==========================
+
+   HEALTH CHECK & SERVER START
+
+   ========================== */
+
+
+
+app.get("/", (req, res) => {
+
+  res.send({ message: "BookNook Server is running fine!" });
+
+});
+
+
 
 
 app.listen(PORT, () => {
