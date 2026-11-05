@@ -104,6 +104,22 @@ app.get("/books/:id", async (req, res) => {
   }
 });
 
+// 3. POST /books — Add a new book (Private Route)
+app.post("/books", verifyToken, async (req, res) => {
+  try {
+    const bookData = req.body;
+    const newBook = {
+      ...bookData,
+      totalCopies: parseInt(bookData.totalCopies) || 1,
+      availableCopies: parseInt(bookData.totalCopies) || 1,
+      createdAt: new Date()
+    };
+    const result = await booksCollection.insertOne(newBook);
+    res.status(201).send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to add book", error: error.message });
+  }
+});
 
 /* ==========================
 
