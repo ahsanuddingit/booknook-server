@@ -29,29 +29,29 @@ const booksCollection = db.collection("books");
 const borrowsCollection = db.collection("borrows");
 
 // Middleware to verify BetterAuth JWT Token & attach user payload to req.user
-// const verifyToken = async (req, res, next) => {
-//   const authHeader = req.headers.authorization;
-//   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-//     return res.status(401).send({ message: "Unauthorized: No token provided!" });
-//   }
+const verifyToken = async (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).send({ message: "Unauthorized: No token provided!" });
+  }
  
-//   const token = authHeader.split(" ")[1];
-//   if (!token) {
-//     return res.status(401).send({ message: "Unauthorized: Invalid token format!" });
-//   }
+  const token = authHeader.split(" ")[1];
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized: Invalid token format!" });
+  }
 
-//   try {
-//     const JWKS = createRemoteJWKSet(
-//       new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
-//     );
-//     const { payload } = await jwtVerify(token, JWKS);
-//     req.user = payload; // Attach decoded user info (e.g., email, id) to request
-//     next();
-//   } catch (error) {
-//     console.error("JWT Verification Error:", error);
-//     return res.status(401).send({ message: "Unauthorized: Token expired or invalid!" });
-//   }
-// };
+  try {
+    const JWKS = createRemoteJWKSet(
+      new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+    );
+    const { payload } = await jwtVerify(token, JWKS);
+    req.user = payload; // Attach decoded user info (e.g., email, id) to request
+    next();
+  } catch (error) {
+    console.error("JWT Verification Error:", error);
+    return res.status(401).send({ message: "Unauthorized: Token expired or invalid!" });
+  }
+};
 
 /* ==========================
    BOOK ROUTES (CRUD)
