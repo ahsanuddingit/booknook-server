@@ -77,6 +77,34 @@ app.get("/books", async (req, res) => {
 
 
 
+// Optional: Get featured/newest books for Home page
+app.get("/featured-books", async (req, res) => {
+  try {
+    const result = await booksCollection.find().sort({ createdAt: -1 }).limit(6).toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch featured books", error: error.message });
+  }
+});
+
+// 2. GET /books/:id — Get a single book (Public / Private)
+app.get("/books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid Book ID format" });
+    }
+    const result = await booksCollection.findOne({ _id: new ObjectId(id) });
+    if (!result) {
+      return res.status(404).send({ message: "Book not found" });
+    }
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch book details", error: error.message });
+  }
+});
+
+
 /* ==========================
 
    HEALTH CHECK & SERVER START
