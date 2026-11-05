@@ -141,6 +141,22 @@ app.patch("/books/:id", verifyToken, async (req, res) => {
     res.status(500).send({ message: "Failed to update book", error: error.message });
   }
 });
+
+
+// 5. DELETE /books/:id — Delete a book (Private Route)
+app.delete("/books/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid Book ID format" });
+    }
+    const result = await booksCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to delete book", error: error.message });
+  }
+});
+
 /* ==========================
 
    HEALTH CHECK & SERVER START
