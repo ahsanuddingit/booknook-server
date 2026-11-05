@@ -9,16 +9,16 @@ const PORT = process.env.PORT || 8000;
 
 const client = new MongoClient(process.env.MONGODB_URI);
 
-export async function connectToMongoDB() {
-  try {
-    await client.connect();
-    console.log("You successfully connected to MongoDB!");
-    return client;
-  } catch (err) {
-    console.error("MongoDB connection failed:", err);
-    process.exit(1);
-  }
-}
+// export async function connectToMongoDB() {
+//   try {
+//     await client.connect();
+//     console.log("You successfully connected to MongoDB!");
+//     return client;
+//   } catch (err) {
+//     console.error("MongoDB connection failed:", err);
+//     process.exit(1);
+//   }
+// }
 
 app.use(cors());
 app.use(express.json());
@@ -75,8 +75,6 @@ app.get("/books", async (req, res) => {
   }
 });
 
-
-
 // Optional: Get featured/newest books for Home page
 app.get("/featured-books", async (req, res) => {
   try {
@@ -121,7 +119,6 @@ app.post("/books", verifyToken, async (req, res) => {
   }
 });
 
-
 // 4. PATCH /books/:id — Update a book (Private Route)
 app.patch("/books/:id", verifyToken, async (req, res) => {
   try {
@@ -142,7 +139,6 @@ app.patch("/books/:id", verifyToken, async (req, res) => {
   }
 });
 
-
 // 5. DELETE /books/:id — Delete a book (Private Route)
 app.delete("/books/:id", verifyToken, async (req, res) => {
   try {
@@ -156,6 +152,7 @@ app.delete("/books/:id", verifyToken, async (req, res) => {
     res.status(500).send({ message: "Failed to delete book", error: error.message });
   }
 });
+
 
 /* ==========================
    BORROW SYSTEM ROUTES
@@ -256,21 +253,12 @@ app.delete("/borrows/:id", verifyToken, async (req, res) => {
 
 
 /* ==========================
-
    HEALTH CHECK & SERVER START
-
    ========================== */
 
-
-
 app.get("/", (req, res) => {
-
   res.send({ message: "BookNook Server is running fine!" });
-
 });
-
-
-
 
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
