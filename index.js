@@ -7,7 +7,20 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 const app = express();
 const PORT = process.env.PORT || 8000;
 
-const client = new MongoClient(process.env.MONGODB_URI);
+const MONGODB_URI = process.env.MONGODB_URI;
+const CLIENT_URL = (process.env.CLIENT_URL || "").replace(/\/+$/, "");
+
+// --- env checks: missing CLIENT_URL is the #1 cause of 401s ---
+if (!MONGODB_URI) {
+  console.error("Missing MONGODB_URI in .env");
+  process.exit(1);
+}
+if (!CLIENT_URL) {
+  console.error("Missing CLIENT_URL in .env — must be the Next.js origin, e.g. http://localhost:3000");
+  process.exit(1);
+}
+
+const client = new MongoClient(MONGODB_URI);
 
 export async function connectToMongoDB() {
   try {
@@ -20,7 +33,7 @@ export async function connectToMongoDB() {
   }
 }
 
-app.use(cors());
+app.use(cors({ origin: CLIENT_URL }));
 app.use(express.json());
 
 const mongoClient = await connectToMongoDB();
@@ -28,29 +41,39 @@ const db = mongoClient.db("booknook");
 const booksCollection = db.collection("books");
 const borrowsCollection = db.collection("borrows");
 
+// Create JWKS once at startup, not on every request
+const JWKS = createRemoteJWKSet(new URL(`${CLIENT_URL}/api/auth/jwks`));
+
+function normalizeEmail(email) {
+  return typeof email === "string" ? email.trim().toLowerCase() : "";
+}
+
 const verifyToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
+
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).send({ message: "Unauthorized: No token provided!" });
   }
-  
+
   const token = authHeader.split(" ")[1];
   if (!token) {
     return res.status(401).send({ message: "Unauthorized: Invalid token format!" });
   }
 
   try {
-    const JWKS = createRemoteJWKSet(
-      new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
-    );
     const { payload } = await jwtVerify(token, JWKS);
-    req.user = payload; 
+    req.user = {
+      id: payload.sub,
+      email: normalizeEmail(payload.email),
+    };
     next();
   } catch (error) {
-    console.error("JWT Verification Error:", error);
+    console.error("JWT Verification Error:", error.message);
     return res.status(401).send({ message: "Unauthorized: Token expired or invalid!" });
   }
 };
+
+// ---------------- Books ----------------
 
 app.get("/books", async (req, res) => {
   try {
@@ -96,13 +119,23 @@ app.get("/books/:id", async (req, res) => {
 
 app.post("/books", verifyToken, async (req, res) => {
   try {
-    const bookData = req.body;
+    const { title, author, category, description, image, totalCopies, userName } = req.body;
+
+    const copies = parseInt(totalCopies) || 1;
     const newBook = {
-      ...bookData,
-      totalCopies: parseInt(bookData.totalCopies) || 1,
-      availableCopies: parseInt(bookData.totalCopies) || 1,
-      createdAt: new Date()
+      title,
+      author,
+      category,
+      description,
+      image,
+      totalCopies: copies,
+      availableCopies: copies,
+      // Take owner from the verified token, not the client body
+      userEmail: req.user.email || normalizeEmail(req.body.userEmail),
+      userName: userName || "",
+      createdAt: new Date(),
     };
+
     const result = await booksCollection.insertOne(newBook);
     res.status(201).send(result);
   } catch (error) {
@@ -113,10 +146,27 @@ app.post("/books", verifyToken, async (req, res) => {
 app.patch("/books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedData = req.body;
-    
     if (!ObjectId.isValid(id)) {
       return res.status(400).send({ message: "Invalid Book ID format" });
+    }
+
+    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    if (!book) {
+      return res.status(404).send({ message: "Book not found" });
+    }
+
+    // Ownership check: only the owner can edit (skip if legacy book has no owner)
+    if (book.userEmail && normalizeEmail(book.userEmail) !== req.user.email) {
+      return res.status(403).send({ message: "Forbidden: You do not own this book" });
+    }
+
+    // Whitelist fields — don't let client overwrite _id, createdAt, copies, owner, etc.
+    const allowed = ["title", "author", "category", "description", "image"];
+    const updatedData = {};
+    for (const field of allowed) {
+      if (req.body[field] !== undefined) {
+        updatedData[field] = req.body[field];
+      }
     }
 
     const result = await booksCollection.updateOne(
@@ -135,6 +185,16 @@ app.delete("/books/:id", verifyToken, async (req, res) => {
     if (!ObjectId.isValid(id)) {
       return res.status(400).send({ message: "Invalid Book ID format" });
     }
+
+    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    if (!book) {
+      return res.status(404).send({ message: "Book not found" });
+    }
+
+    if (book.userEmail && normalizeEmail(book.userEmail) !== req.user.email) {
+      return res.status(403).send({ message: "Forbidden: You do not own this book" });
+    }
+
     const result = await booksCollection.deleteOne({ _id: new ObjectId(id) });
     res.send(result);
   } catch (error) {
@@ -142,9 +202,12 @@ app.delete("/books/:id", verifyToken, async (req, res) => {
   }
 });
 
+// ---------------- Borrows ----------------
+
 app.post("/borrows", verifyToken, async (req, res) => {
   try {
-    const { bookId, bookTitle, bookImage, userEmail, borrowDate, returnDate } = req.body;
+    const { bookId } = req.body;
+    const userEmail = req.user.email;
 
     if (!ObjectId.isValid(bookId)) {
       return res.status(400).send({ message: "Invalid Book ID" });
@@ -152,7 +215,7 @@ app.post("/borrows", verifyToken, async (req, res) => {
 
     const existingBorrow = await borrowsCollection.findOne({
       bookId: new ObjectId(bookId),
-      userEmail: userEmail || req.user.email
+      userEmail,
     });
 
     if (existingBorrow) {
@@ -168,13 +231,14 @@ app.post("/borrows", verifyToken, async (req, res) => {
       return res.status(400).send({ message: "Sorry, this book is currently out of stock / Not Available." });
     }
 
+    // Take title/image from the real book doc, not from client body
     const borrowRecord = {
       bookId: new ObjectId(bookId),
-      bookTitle,
-      bookImage,
-      userEmail: userEmail || req.user.email,
-      borrowDate: borrowDate || new Date(),
-      returnDate: returnDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+      bookTitle: book.title,
+      bookImage: book.image,
+      userEmail,
+      borrowDate: new Date(),
+      returnDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     };
 
     const result = await borrowsCollection.insertOne(borrowRecord);
@@ -192,8 +256,7 @@ app.post("/borrows", verifyToken, async (req, res) => {
 
 app.get("/borrows", verifyToken, async (req, res) => {
   try {
-    const userEmail = req.user.email;
-    const result = await borrowsCollection.find({ userEmail }).toArray();
+    const result = await borrowsCollection.find({ userEmail: req.user.email }).toArray();
     res.send(result);
   } catch (error) {
     res.status(500).send({ message: "Failed to fetch borrowed books", error: error.message });
@@ -212,10 +275,15 @@ app.delete("/borrows/:id", verifyToken, async (req, res) => {
       return res.status(404).send({ message: "Borrow record not found!" });
     }
 
+    // Only the borrower can return their own borrow
+    if (normalizeEmail(borrowRecord.userEmail) !== req.user.email) {
+      return res.status(403).send({ message: "Forbidden: This borrow does not belong to you" });
+    }
+
     const result = await borrowsCollection.deleteOne({ _id: new ObjectId(id) });
 
     await booksCollection.updateOne(
-      { _id: new ObjectId(borrowRecord.bookId) },
+      { _id: borrowRecord.bookId },
       { $inc: { availableCopies: 1 } }
     );
 
