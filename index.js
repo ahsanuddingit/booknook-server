@@ -121,6 +121,26 @@ app.post("/books", verifyToken, async (req, res) => {
   }
 });
 
+
+// 4. PATCH /books/:id — Update a book (Private Route)
+app.patch("/books/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const updatedData = req.body;
+   
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid Book ID format" });
+    }
+
+    const result = await booksCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updatedData }
+    );
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to update book", error: error.message });
+  }
+});
 /* ==========================
 
    HEALTH CHECK & SERVER START
