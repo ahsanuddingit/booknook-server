@@ -158,6 +158,104 @@ app.delete("/books/:id", verifyToken, async (req, res) => {
 });
 
 /* ==========================
+   BORROW SYSTEM ROUTES
+   ========================== */
+
+// 6. POST /borrows — Borrow a book with Challenge validations (Private Route)
+app.post("/borrows", verifyToken, async (req, res) => {
+  try {
+    const { bookId, bookTitle, bookImage, userEmail, borrowDate, returnDate } = req.body;
+
+    if (!ObjectId.isValid(bookId)) {
+      return res.status(400).send({ message: "Invalid Book ID" });
+    }
+
+    // Challenge Check: Check if user already borrowed this book and hasn't returned it
+    const existingBorrow = await borrowsCollection.findOne({
+      bookId: new ObjectId(bookId),
+      userEmail: userEmail || req.user.email
+    });
+
+    if (existingBorrow) {
+      return res.status(400).send({ message: "You have already borrowed this book and haven't returned it yet!" });
+    }
+
+    // Check if the book has available copies > 0
+    const book = await booksCollection.findOne({ _id: new ObjectId(bookId) });
+    if (!book) {
+      return res.status(404).send({ message: "Book not found!" });
+    }
+
+    if (book.availableCopies <= 0) {
+      return res.status(400).send({ message: "Sorry, this book is currently out of stock / Not Available." });
+    }
+
+    // Insert borrow record
+    const borrowRecord = {
+      bookId: new ObjectId(bookId),
+      bookTitle,
+      bookImage,
+      userEmail: userEmail || req.user.email,
+      borrowDate: borrowDate || new Date(),
+      returnDate: returnDate || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days default
+    };
+
+    const result = await borrowsCollection.insertOne(borrowRecord);
+
+    // Decrease availableCopies by 1 using $inc
+    await booksCollection.updateOne(
+      { _id: new ObjectId(bookId) },
+      { $inc: { availableCopies: -1 } }
+    );
+
+    res.status(201).send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to borrow book", error: error.message });
+  }
+});
+
+// 7. GET /borrows — Get borrows of the logged-in user (Private Route)
+app.get("/borrows", verifyToken, async (req, res) => {
+  try {
+    const userEmail = req.user.email; // Extracted securely from verified token
+    const result = await borrowsCollection.find({ userEmail }).toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch borrowed books", error: error.message });
+  }
+});
+
+// 8. DELETE /borrows/:id — Return a book and increment available copies (Private Route)
+app.delete("/borrows/:id", verifyToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ message: "Invalid Borrow Record ID format" });
+    }
+
+    // Find the borrow record first to get the corresponding bookId
+    const borrowRecord = await borrowsCollection.findOne({ _id: new ObjectId(id) });
+    if (!borrowRecord) {
+      return res.status(404).send({ message: "Borrow record not found!" });
+    }
+
+    // Delete the borrow record
+    const result = await borrowsCollection.deleteOne({ _id: new ObjectId(id) });
+
+    // Increment availableCopies by 1 using $inc
+    await booksCollection.updateOne(
+      { _id: new ObjectId(borrowRecord.bookId) },
+      { $inc: { availableCopies: 1 } }
+    );
+
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to return book", error: error.message });
+  }
+});
+
+
+/* ==========================
 
    HEALTH CHECK & SERVER START
 
